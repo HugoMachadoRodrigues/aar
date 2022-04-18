@@ -1,15 +1,25 @@
+# Lendo pacote
 library(terra)
 
+# Carregando raster de covariaveis
 r_to_crop<-terra::rast("./data/covariaveis_50m.tif")
+
+# Plotando o MDE
 plot(r_to_crop$dem)
+
+# Separando os rasteres de MDE e SAGA no objeto "r"
 r<-r_to_crop[[c("dem","saga_wetness_index")]]
+
+# Chacando os nomes
 names(r)
+
+# Trocando a resolucao de 50 para 500 m
 r <- terra::aggregate(r, 10)
 
+# Setando variavel "n" como 10. Esse valor refere-se ao numero de linhas e colunas
 n <- 10
 
 # Get the starting cells of interest
-
 rows <- seq(1, nrow(r), by=n)
 cols <- seq(1, ncol(r), by=n)    
 cells <- cellFromRowColCombine(r, rows, cols)
@@ -26,7 +36,6 @@ xy[,2] <- xy[,2] + rs[2]/2
 xy <- cbind(xy[,1], xy[,1] + n*rs[1], xy[,2] - n*rs[2], xy[,2])
 
 # And loop
-
 x <- lapply(1:nrow(xy), function(i) {
   
   crop(r, xy[i,])
@@ -34,27 +43,48 @@ x <- lapply(1:nrow(xy), function(i) {
 })
 
 # Verify
-
 e <- lapply(x, \(i) ext(i) |> as.polygons()) |> vect()
 
+# Plotando o raster de MDE
 plot(r[[1]])
 
+# Plotando o bloco de linhas
 lines(e, col="blue", lwd=2)
 
+# Criando lista com mesmo tamanho do objeto "r" para receber as variaveis calculadas
 gower_list <- vector(mode='list', length = length(x))
 
+# Calculando o indice gower para cada subbloco e comparando isso ao valor do indice gower do bloco maior
 for (i in 1:length(x)) {
   
   gower_list[[i]] <- try(mean(gower::gower_dist(as.data.frame(x[[i]], xy =T),
-                                                as.data.frame(r, xy = T)), na.rm = TRUE),silent = FALSE)
+                                                as.data.frame(r, xy = T)), na.rm = TRUE),silent = T)
   
 }
 
-gower_list_df <- matrix(unlist(as.list(gower_list)), dimnames = list(1:length(x),"Cropped raster"))
+# Transformando objeto das metricas calculadas em objeto do tipo matriz
+gower_list_df <- matrix(unlist(as.list(gower_list)))#, dimnames = list(1:length(x),"Cropped raster"))
+
+# Transformando as entradas da lista em classe de numero
+gower_list_df<-as.numeric(gower_list_df[,])
+
+# Chechando os valores de cada entrada
 gower_list_df
 
-gower_list_df[order(gower_list_df[,1],decreasing=F),]
+x_gower_ordered <- sort(unlist(gower_list_df), decreasing = FALSE,na.last = TRUE,index.return = TRUE)
 
+# Juntando os subrasters "x" com os valores de gower respectivos em um objeto
+x_gower_2<- cbind(x, x_gower_ordered$x,x_gower_ordered$ix)
+x_gower_2[,c(2,3)]
 
+candidatos <- (x_gower_2[,c(1)][x_gower_2[,c(2)] <= 0.25])
+
+candidatos<-candidatos[!sapply(candidatos,is.null)]
+
+teste <- do.call(terra::mosaic, candidatos[1:25])
+plot(teste)
+
+plot(r$dem)
+plot(teste$dem)
 
 
