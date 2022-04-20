@@ -86,5 +86,3 @@ teste <- do.call(terra::mosaic, candidatos[c(1:length(candidatos))])
 par(mfrow = c(1,1))
 terra::plot(r$saga_wetness_index,range = c(5,14))
 terra::plot(teste$saga_wetness_index, range = c(5,14), add = T, col =grDevices::topo.colors((50) ))
-
-gower_list
