@@ -1,28 +1,83 @@
 # Lendo pacote
 library(terra)
 
-# Carregando raster de covariaveis
-r_to_crop<-terra::rast("./data/covariaveis_50m.tif")
-names(r_to_crop)
-# Plotando o MDE
-plot(r_to_crop$dem)
+# Carregando dados e rasteres de covariaveis
+ar_manual <- terra::vect("./data/AR_satiro_dias.shp")
+satiro_dias <- terra::vect("./data/Satiro_dias.shp")
+perfis <- terra::vect("./data/Satiro_dias.shp")
+dados_in <- terra::vect(read.table("./data/dados_in.txt", sep = "\t", dec = ".", header = T),
+                        geom = c("X","Y"))
+dados_out <- terra::vect(read.table("./data/dados_out.txt", sep = "\t", dec = ".", header = T),
+                        geom = c("X","Y"))
+r_to_crop<-terra::rast("./data/covariaveis_10m_cut_fator.tif")
 
-# Separando os rasteres de MDE e SAGA no objeto "r"
-r<-r_to_crop[[c("dem","saga_wetness_index","amb_pedo","aspect")]]
+# Separando os rasteres que serao continuos
+r_continuo<-r_to_crop[[c("precip","temp")]]
 
-# Chacando os nomes
+# Separando os rasteres que serao categoricos
+r_categoria<-r_to_crop[[c("geology","geomorphology","pedology")]]
+
+# Convertendo os dados de continuos para fator
+r_categoria$geology<-sjlabelled::as_factor(r_categoria$geology[])
+r_categoria$pedology<-sjlabelled::as_factor(r_categoria$pedology[])
+r_categoria$geomorphology<-sjlabelled::as_factor(r_categoria$geomorphology[])
+
+# Checando se os dados categoricos estao como fator
+is.factor(r_categoria["geology"])
+is.factor(r_categoria["pedology"])
+is.factor(r_categoria["geomorphology"])
+
+# Reamostrando os rasteres para poder processar durante etapa de teste
+r_continuo<-terra::aggregate(r_continuo,10, fun = "mean")
+r_categoria <- terra::aggregate(r_categoria,10, fun = "modal")
+
+plot(r_categoria)
+
+# Dividindo cada variavel em dummys
+geologia <- data.frame(varhandle::to.dummy(terra::as.data.frame(r_categoria$geology), "geology"))
+geomorfologia <- data.frame(varhandle::to.dummy(as.data.frame(r_categoria$geomorphology), "geomorphology"))
+pedologia <- data.frame(varhandle::to.dummy(as.data.frame(r_categoria$pedology), "pedology"))
+
+# Associando as vairiáveis às coordenadas
+geologia$x <- terra::as.data.frame(r_categoria$geology, xy = T)[,c(1)]
+geologia$y <- terra::as.data.frame(r_categoria$geology, xy = T)[,c(2)]
+
+geomorfologia$x <- terra::as.data.frame(r_categoria$geomorphology, xy = T)[,c(1)]
+geomorfologia$y <- terra::as.data.frame(r_categoria$geomorphology, xy = T)[,c(2)]
+
+pedologia$x <- terra::as.data.frame(r_categoria$pedology, xy = T)[,c(1)]
+pedologia$y <- terra::as.data.frame(r_categoria$pedology, xy = T)[,c(2)]
+
+geologia <- geologia[, c(6, 7, 1:5)]
+geomorfologia <- geomorfologia[, c(5, 6, 1:4)]
+pedologia <- pedologia[, c(8, 9, 1:7)]
+
+geologia<-terra::rast(geologia)
+geomorfologia<-terra::rast(geomorfologia)
+pedologia<-terra::rast(pedologia)
+
+plot(geologia)
+plot(geomorfologia)
+plot(pedologia)
+
+r_variaveis_categoricas_dummy <- c(geologia,geomorfologia,pedologia)
+
+# Juntando os dois conjuntos num mesmo rasterStack
+r <- c(r_continuo,r_variaveis_categoricas_dummy)
+str(as.data.frame(r))
+# Checando os nomes
 names(r)
 
-# Trocando a resolucao de 50 para 500 m
-r <- terra::aggregate(r, 10)
+#Plotando o banco de rasteres
+plot(r)
 
 # Setando variavel "n" como 10. Esse valor refere-se ao numero de linhas e colunas
-n <- 5
+n <- 10
 
 # Get the starting cells of interest
 rows <- seq(1, nrow(r), by=n)
 cols <- seq(1, ncol(r), by=n)    
-cells <- cellFromRowColCombine(r, rows, cols)
+cells <- terra::cellFromRowColCombine(r, rows, cols)
 
 # Get the coordinates
 
@@ -57,8 +112,8 @@ gower_list <- vector(mode='list', length = length(x))
 # Calculando o indice gower para cada subbloco e comparando isso ao valor do indice gower do bloco maior
 for (i in 1:length(x)) {
   
-  gower_list[[i]] <- try(mean(gower::gower_dist(as.data.frame(x[[i]], xy =T),
-                                                as.data.frame(r, xy = T)), na.rm = TRUE),silent = T)
+  gower_list[[i]] <- try(mean(gower::gower_dist(as.data.frame(x[[i]]),
+                                                as.data.frame(r)), na.rm = TRUE),silent = T)
   
 }
 
@@ -71,18 +126,59 @@ gower_list_df<-as.numeric(gower_list_df[,])
 # Chechando os valores de cada entrada
 gower_list_df
 
-x_gower_ordered <- sort(unlist(gower_list_df), decreasing = FALSE,na.last = NA,index.return = TRUE)
+# Ordenando os dados
+x_gower_ordered <- unlist(gower_list_df)
+# x_gower_ordered <- sort(unlist(gower_list_df), decreasing = FALSE,na.last = NA,index.return = TRUE)
 
 # Juntando os subrasters "x" com os valores de gower respectivos em um objeto
-x_gower_2<- cbind(x, x_gower_ordered$x,x_gower_ordered$ix)
-x_gower_2[,c(2,3)]
+x_gower_2<- cbind(x, x_gower_ordered)
+x_gower_2
 
-candidatos <- (x_gower_2[,c(1)][x_gower_2[,c(2)] <= 0.25])
+# Selecionando as subseções de rasteres com índice gower menor e igual que 0.25
+candidatos <- (x_gower_2[,c(1)][x_gower_2[,c(2)] <= 0.12])
+candidatos_ruins <- (x_gower_2[,c(1)][x_gower_2[,c(2)] >= 0.2])
 
+# Removendo os objetos da lista que estao vazios
 candidatos<-candidatos[!sapply(candidatos,is.null)]
+candidatos_ruins<-candidatos_ruins[!sapply(candidatos_ruins,is.null)]
 
-teste <- do.call(terra::mosaic, candidatos[c(1:length(candidatos))])
+# Juntando em mosaico as subseções menores que 0.25 em gower
+mosaico <- do.call(terra::mosaic, candidatos[c(1:length(candidatos))])
+mosaico_ruins <- do.call(terra::mosaic, candidatos_ruins[c(1:length(candidatos_ruins))])
 
-par(mfrow = c(1,1))
-terra::plot(r$saga_wetness_index,range = c(5,14))
-terra::plot(teste$saga_wetness_index, range = c(5,14), add = T, col =grDevices::topo.colors((50) ))
+pe <- as.polygons(ext(mosaico))
+pr <- as.polygons(mosaico > -Inf)
+
+pe_ruins <- as.polygons(ext(mosaico_ruins))
+pr_ruins <- as.polygons(mosaico_ruins > -Inf)
+
+plot(r$temp)
+ plot(pe, lwd=5, border='red', add=TRUE)
+plot(pr, lwd=3, border='blue', add=TRUE) 
+plot(ar_manual, lwd=3, border='yellow', add=TRUE) 
+plot(dados_in, pch=19, col='black', add=TRUE, cex = 0.8)
+plot(dados_out, pch=17, col='red', add=TRUE, cex = 0.8)
+
+plot(r$temp)
+# plot(pe, lwd=5, border='red', add=TRUE)
+plot(pr_ruins, lwd=3, border='blue', add=TRUE)
+# plot(pr, lwd=3, border='blue', add=TRUE)
+plot(ar_manual, lwd=3, border='yellow', add=TRUE) 
+plot(dados_in, pch=19, col='black', add=TRUE, cex = 0.8)
+plot(dados_out, pch=17, col='blue', add=TRUE, cex = 0.8)
+
+# calculando area
+
+expanse(pr, unit = "km")
+expanse(satiro_dias, unit = "km")
+expanse(ar_manual, unit = "km")
+expanse(pr_ruins, unit = "km")
+
+# Calculando área manual
+expanse(ar_manual, unit = "km") / expanse(satiro_dias, unit = "km") * 100
+
+# Calculando área automatica "boa"
+expanse(pr, unit = "km") / expanse(satiro_dias, unit = "km") * 100
+
+# Calculando área automatica "ruim"
+expanse(pr_ruins, unit = "km") / expanse(satiro_dias, unit = "km") * 100
