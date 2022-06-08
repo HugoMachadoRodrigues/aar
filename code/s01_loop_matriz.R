@@ -1,3 +1,6 @@
+#Teste Gustavo
+print("Hello Hugo")
+
 # Lendo pacote
 library(terra)
 
