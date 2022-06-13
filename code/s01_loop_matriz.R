@@ -1,5 +1,5 @@
 # Lendo pacote
-library(terra); library(varhandle); library(sjlabelled)
+library(terra); library(varhandle); library(sjlabelled); library(foreach); library(doSNOW)
 
 # Carregando dados e rasteres de covariaveis
 
@@ -17,7 +17,7 @@ r_to_crop <- terra::rast("./data/covariaveis_10m_cut_fator.tif") #raster multiba
 names(r_to_crop)
 
 # Separando os rasteres que serao continuos
-r_continuo <- r_to_crop[[c("slope","dem", "temp")]]
+r_continuo <- r_to_crop[[c("slope","dem", "temp","precip")]]
 
 # Separando os rasteres que serao categoricos. Aqui foi removida a geomorfologia
 r_categoria <- r_to_crop[[c("geology","pedology")]]
@@ -33,50 +33,13 @@ is.factor(r_categoria["pedology"])
 # is.factor(r_categoria["geomorphology"])
 
 # Reamostrando os rasteres para poder processar durante etapa de teste
-r_continuo <- terra::aggregate(r_continuo, 20, fun = "mean")
-r_categoria <- terra::aggregate(r_categoria, 20, fun = "modal")
+r_continuo <- terra::aggregate(r_continuo, 200, fun = "mean")
+r_categoria <- terra::aggregate(r_categoria, 200, fun = "modal")
 
 plot(r_continuo)
 plot(r_categoria)
 
-# Convertendo cada variavel em dummies
-# geologia <- data.frame(varhandle::to.dummy(terra::as.data.frame(r_categoria$geology), "geology"))
-# geomorfologia <- data.frame(varhandle::to.dummy(as.data.frame(r_categoria$geomorphology), "geomorphology"))
-# pedologia <- data.frame(varhandle::to.dummy(as.data.frame(r_categoria$pedology), "pedology"))
-# 
-# # Associando as variaveis às coordenadas
-# geologia[,c("x","y")] <- terra::as.data.frame(r_categoria$geology, xy = T)[,c(1,2)]
-# geomorfologia[,c("x","y")] <- terra::as.data.frame(r_categoria$geomorphology, xy = T)[,c(1,2)]
-# pedologia[,c("x","y")] <- terra::as.data.frame(r_categoria$pedology, xy = T)[,c(1,2)]
-# 
-# # Reordenando as variáveis para colocar x e y no inicio para converter para raster
-# geologia <- geologia[, c(6, 7, 1:5)]
-# geomorfologia <- geomorfologia[, c(5, 6, 1:4)]
-# pedologia <- pedologia[, c(8, 9, 1:7)]
-# 
-# # Convertendo para raster
-# geologia <- terra::rast(geologia)
-# geomorfologia <- terra::rast(geomorfologia)
-# pedologia <- terra::rast(pedologia)
-# 
-# plot(geologia)
-# plot(geomorfologia)
-# plot(pedologia)
-# 
-# # Juntando as covariaveis dummy em um stack
-# r_variaveis_categoricas_dummy <- c(geologia, geomorfologia, pedologia)
-# 
-# # Juntando o stack de covariaveis dummy e as contínuas em um mesmo stack
-# r <- c(r_continuo, r_variaveis_categoricas_dummy)
-
-# A partir dessa linha caso nao se queria converter para variaveis dummies
-
 r <- c(r_continuo, r_categoria)
-
-# Checando se as variaveis estao como categorias
-
-is.factor(r["geology"])
-is.factor(r["pedology"])
 
 # Checando os nomes
 names(r)
@@ -103,14 +66,22 @@ xy[,2] <- xy[,2] + rs[2]/2
 # add the lower-right coordinates of the end cell
 xy <- cbind(xy[,1], xy[,1] + n*rs[1], xy[,2] - n*rs[2], xy[,2])
 
+# registerDoSNOW(makeCluster(3)) #create connection to 10 cores (threads)
+# 
+# x <- foreach::foreach(i=1 : nrow(xy), .packages=c("terra")) %dopar% {
+#      terra::crop(r, xy[i,])
+# }
+# 
+# closeAllConnections(); gc() #close multicore connections before running another task in parallel
+
 # And loop
-x <- lapply(1:nrow(xy), function(i) {
+x2 <- lapply(1:nrow(xy), function(i) {
   
-  crop(r, xy[i,])
+  terra::crop(r, xy[i,])
 
 })
 
-plot(x[[1]]) # mostra primeiro bloco recortado
+plot(x[[209]]) # mostra primeiro bloco recortado
 
 # Verify
 #e <- lapply(x, \(i) ext(i) |> as.polygons()) |> vect() #usando pipes ( / significa function())
@@ -124,6 +95,7 @@ lines(e, col="blue", lwd=2)
 
 # Criando lista vazia com mesmo tamanho do objeto "r" para receber as variaveis calculadas
 gower_list <- vector(mode='list', length = length(x)) # length(x) representa o numero de blocos no raster x
+gower_list2 <- vector(mode='list', length = length(x)) # length(x) representa o numero de blocos no raster x
 
 # Calculando o indice gower para cada bloco e comparando isso ao valor do indice gower do raster inteiro (area completa)
 for (i in 1:length(x)) {
@@ -132,6 +104,15 @@ for (i in 1:length(x)) {
                                                 as.data.frame(r)), na.rm = TRUE), silent = T)
   
 }
+
+# registerDoSNOW(makeCluster(3)) #create connection to 3 cores (threads)
+# 
+# gower_list2 <- foreach::foreach(i=1 : length(x), .packages=c("gower", "Rcpp"),.noexport = "gower.c") %dopar% {
+#   try(mean(sourceCpp(gower::gower_dist(as.data.frame(x[[i]]),
+#                              as.data.frame(r))), na.rm = TRUE), silent = T)
+# }
+# 
+# closeAllConnections(); gc() #close multicore connections before running another task in parallel
 
 # Transformando objeto das metricas calculadas (indices gower) em matriz
 gower_list_df <- matrix(unlist(as.list(gower_list)))#, dimnames = list(1:length(x),"Cropped raster"))
