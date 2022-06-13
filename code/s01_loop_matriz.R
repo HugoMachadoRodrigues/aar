@@ -1,6 +1,3 @@
-#Teste Gustavo
-print("Hello Hugo")
-
 # Lendo pacote
 library(terra); library(varhandle); library(sjlabelled)
 
@@ -20,59 +17,66 @@ r_to_crop <- terra::rast("./data/covariaveis_10m_cut_fator.tif") #raster multiba
 names(r_to_crop)
 
 # Separando os rasteres que serao continuos
-r_continuo <- r_to_crop[[c("slope","dem")]]
+r_continuo <- r_to_crop[[c("slope","dem", "temp")]]
 
-# Separando os rasteres que serao categoricos
-r_categoria <- r_to_crop[[c("geology","geomorphology","pedology")]]
+# Separando os rasteres que serao categoricos. Aqui foi removida a geomorfologia
+r_categoria <- r_to_crop[[c("geology","pedology")]]
 
-# Convertendo os dados de categoricos para fator
+# Convertendo os dados de categoricos para fator. Aqui foi removida a geomorfologia
 r_categoria$geology <- sjlabelled::as_factor(r_categoria$geology[])
 r_categoria$pedology <- sjlabelled::as_factor(r_categoria$pedology[])
-r_categoria$geomorphology <- sjlabelled::as_factor(r_categoria$geomorphology[])
+# r_categoria$geomorphology <- sjlabelled::as_factor(r_categoria$geomorphology[])
 
 # Checando se os dados categoricos estao como fator
 is.factor(r_categoria["geology"])
 is.factor(r_categoria["pedology"])
-is.factor(r_categoria["geomorphology"])
+# is.factor(r_categoria["geomorphology"])
 
 # Reamostrando os rasteres para poder processar durante etapa de teste
-r_continuo <- terra::aggregate(r_continuo, 50, fun = "mean")
-r_categoria <- terra::aggregate(r_categoria, 50, fun = "modal")
+r_continuo <- terra::aggregate(r_continuo, 20, fun = "mean")
+r_categoria <- terra::aggregate(r_categoria, 20, fun = "modal")
 
 plot(r_continuo)
 plot(r_categoria)
 
 # Convertendo cada variavel em dummies
-geologia <- data.frame(varhandle::to.dummy(terra::as.data.frame(r_categoria$geology), "geology"))
-geomorfologia <- data.frame(varhandle::to.dummy(as.data.frame(r_categoria$geomorphology), "geomorphology"))
-pedologia <- data.frame(varhandle::to.dummy(as.data.frame(r_categoria$pedology), "pedology"))
+# geologia <- data.frame(varhandle::to.dummy(terra::as.data.frame(r_categoria$geology), "geology"))
+# geomorfologia <- data.frame(varhandle::to.dummy(as.data.frame(r_categoria$geomorphology), "geomorphology"))
+# pedologia <- data.frame(varhandle::to.dummy(as.data.frame(r_categoria$pedology), "pedology"))
+# 
+# # Associando as variaveis às coordenadas
+# geologia[,c("x","y")] <- terra::as.data.frame(r_categoria$geology, xy = T)[,c(1,2)]
+# geomorfologia[,c("x","y")] <- terra::as.data.frame(r_categoria$geomorphology, xy = T)[,c(1,2)]
+# pedologia[,c("x","y")] <- terra::as.data.frame(r_categoria$pedology, xy = T)[,c(1,2)]
+# 
+# # Reordenando as variáveis para colocar x e y no inicio para converter para raster
+# geologia <- geologia[, c(6, 7, 1:5)]
+# geomorfologia <- geomorfologia[, c(5, 6, 1:4)]
+# pedologia <- pedologia[, c(8, 9, 1:7)]
+# 
+# # Convertendo para raster
+# geologia <- terra::rast(geologia)
+# geomorfologia <- terra::rast(geomorfologia)
+# pedologia <- terra::rast(pedologia)
+# 
+# plot(geologia)
+# plot(geomorfologia)
+# plot(pedologia)
+# 
+# # Juntando as covariaveis dummy em um stack
+# r_variaveis_categoricas_dummy <- c(geologia, geomorfologia, pedologia)
+# 
+# # Juntando o stack de covariaveis dummy e as contínuas em um mesmo stack
+# r <- c(r_continuo, r_variaveis_categoricas_dummy)
 
-# Associando as variaveis às coordenadas
-geologia[,c("x","y")] <- terra::as.data.frame(r_categoria$geology, xy = T)[,c(1,2)]
-geomorfologia[,c("x","y")] <- terra::as.data.frame(r_categoria$geomorphology, xy = T)[,c(1,2)]
-pedologia[,c("x","y")] <- terra::as.data.frame(r_categoria$pedology, xy = T)[,c(1,2)]
+# A partir dessa linha caso nao se queria converter para variaveis dummies
 
-# Reordenando as variáveis para colocar x e y no inicio para converter para raster
-geologia <- geologia[, c(6, 7, 1:5)]
-geomorfologia <- geomorfologia[, c(5, 6, 1:4)]
-pedologia <- pedologia[, c(8, 9, 1:7)]
+r <- c(r_continuo, r_categoria)
 
-# Convertendo para raster
-geologia <- terra::rast(geologia)
-geomorfologia <- terra::rast(geomorfologia)
-pedologia <- terra::rast(pedologia)
+# Checando se as variaveis estao como categorias
 
-plot(geologia)
-plot(geomorfologia)
-plot(pedologia)
-
-# Juntando as covariaveis dummy em um stack
-r_variaveis_categoricas_dummy <- c(geologia, geomorfologia, pedologia)
-
-# Juntando o stack de covariaveis dummy e as contínuas em um mesmo stack
-r <- c(r_continuo, r_variaveis_categoricas_dummy)
-
-str(as.data.frame(r))
+is.factor(r["geology"])
+is.factor(r["pedology"])
 
 # Checando os nomes
 names(r)
@@ -81,7 +85,7 @@ names(r)
 plot(r)
 
 # Setando variavel "n" como 10. Esse valor refere-se ao numero de linhas e colunas para fazer a busca no bloco de rasteres
-n <- 10
+n <- 20 # inverti para 20 para compensar a resolucao e para testes
 
 # Get the starting cells of interest
 rows <- seq(1, nrow(r), by=n)
@@ -147,8 +151,8 @@ x_gower_2<- cbind(x, x_gower_ordered)
 x_gower_2
 
 # Selecionando as subseções de rasteres com índice gower menor e igual a 0.135
-candidatos <- (x_gower_2[,c(1)][x_gower_2[,c(2)] <= 0.135])
-candidatos_ruins <- (x_gower_2[,c(1)][x_gower_2[,c(2)] > 0.135])
+candidatos <- (x_gower_2[,c(1)][x_gower_2[,c(2)] <= 0.22])
+candidatos_ruins <- (x_gower_2[,c(1)][x_gower_2[,c(2)] > 0.33])
 
 # Removendo os objetos da lista que estao vazios
 candidatos<-candidatos[!sapply(candidatos,is.null)]
@@ -203,10 +207,10 @@ expanse(pr_ruins, unit = "km") / expanse(satiro_dias, unit = "km") * 100
 
 # A partir desse momento removeremos a área considerada como "Boa" e refaremos a busca pelos menores índices
 
-candidata_1 <- terra::mask(r,pr)
-plot(candidata_1)
+# candidata_1 <- terra::mask(r,pr)
+# plot(candidata_1)
 
-candidata_2 <- terra::mask(r,candidata_1, inverse = T)
+candidata_2 <- terra::mask(r,pr_ruins)
 plot(candidata_2)
 
 # Get the starting cells of interest
@@ -268,9 +272,9 @@ x_gower_ordered_2 <- unlist(gower_list_df_2)
 x_gower_2_2<- cbind(x, x_gower_ordered_2)
 x_gower_2_2
 
-# Selecionando as subseções de rasteres com índice gower menor e igual que 0.17
-candidatos_2 <- (x_gower_2_2[,c(1)][x_gower_2_2[,c(2)] <= 0.17])
-candidatos_ruins_2 <- (x_gower_2_2[,c(1)][x_gower_2_2[,c(2)] > 0.17])
+# Selecionando as subseções de rasteres com índice gower menor e igual que 0.22
+candidatos_2 <- (x_gower_2_2[,c(1)][x_gower_2_2[,c(2)] <= 0.34 ])
+candidatos_ruins_2 <- (x_gower_2_2[,c(1)][x_gower_2_2[,c(2)] > 0.35 ])
 
 # Removendo os objetos da lista que estao vazios
 candidatos_2<-candidatos_2[!sapply(candidatos_2,is.null)]
@@ -303,31 +307,3 @@ plot(pr_ruins_2, lwd=3, border='blue', add=TRUE)
 plot(ar_manual, lwd=3, border='yellow', add=TRUE) 
 plot(dados_in, pch=19, col='black', add=TRUE, cex = 0.8)
 plot(dados_out, pch=17, col='red', add=TRUE, cex = 0.8)
-
-# Exportando os arquivos de "Bons" candidatos para o primeiro e segunda loop de buscas
-# terra::writeVector(pr,"../data/ar_loop_300m.shp" )
-# terra::writeVector(pr_2,"../data/ar_loop_2_300m.shp" )
-
-#1º e 2º loop de 100 metros foi feito com valor <0.115
-#1º e 2º loop de 200 metros foi feito com valor <0.115
-#1º e 2º loop de 300 metros foi feito com valor <0.0.2
-
-teste_100 <-terra::vect("../data/ar_loop_100m.shp" )
-teste_2_100 <-terra::vect("../data/ar_loop_2_100m.shp" )
-
-teste_200 <-terra::vect("../data/ar_loop_200m.shp" )
-teste_2_200 <-terra::vect("../data/ar_loop_2_200m.shp" )
-
-teste_300 <-terra::vect("../data/ar_loop_300m.shp" )
-teste_2_300 <-terra::vect("../data/ar_loop_2_300m.shp" )
-
-library(terra)
-plot(teste_100)
-plot(teste_2_100, add = T, col = "red")
-
-plot(teste_200)
-plot(teste_2_200, col = "red", add=T)
-
-plot(teste_300)
-plot(teste_2_300, col = "red")
-
